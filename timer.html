@@ -37,7 +37,7 @@
       font-variant-numeric: tabular-nums;
     }
 
-    .display.running { color: #0f3460; text-shadow: 0 0 20px #e94560; color: #e94560; }
+    .display.running { text-shadow: 0 0 20px #e94560; }
 
     .input-row {
       display: flex;
@@ -64,6 +64,7 @@
     }
 
     .input-group input:focus { border-color: #e94560; }
+    .input-group input:disabled { opacity: 0.4; cursor: not-allowed; }
 
     .buttons { display: flex; gap: 12px; justify-content: center; }
 
@@ -79,9 +80,10 @@
     }
 
     button:active { transform: scale(0.95); }
+    button:disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
 
     #btn-start  { background: #e94560; color: #fff; }
-    #btn-pause  { background: #533483; color: #fff; display: none; }
+    #btn-pause  { background: #533483; color: #fff; }
     #btn-reset  { background: #0f3460; color: #a8b2d8; border: 2px solid #1a4a80; }
 
     .message {
@@ -98,19 +100,19 @@
   <div class="container">
     <h1>TIMER</h1>
 
-    <div class="display" id="display">00:00:00</div>
+    <div class="display" id="display" role="timer" aria-live="off" aria-atomic="true">00:00:00</div>
 
     <div class="input-row">
       <div class="input-group">
-        <label>時間</label>
+        <label for="hours">時間</label>
         <input type="number" id="hours" min="0" max="99" value="0">
       </div>
       <div class="input-group">
-        <label>分</label>
+        <label for="minutes">分</label>
         <input type="number" id="minutes" min="0" max="59" value="5">
       </div>
       <div class="input-group">
-        <label>秒</label>
+        <label for="seconds">秒</label>
         <input type="number" id="seconds" min="0" max="59" value="0">
       </div>
     </div>
@@ -121,29 +123,31 @@
       <button id="btn-reset">リセット</button>
     </div>
 
-    <div class="message" id="message"></div>
+    <div class="message" id="message" aria-live="assertive"></div>
   </div>
 
   <script>
+    // State: 'idle' | 'running' | 'paused'
+    let state = 'idle';
     let remaining = 0;
+    let endTime = 0;
     let intervalId = null;
-    let running = false;
 
-    const display   = document.getElementById('display');
-    const btnStart  = document.getElementById('btn-start');
-    const btnPause  = document.getElementById('btn-pause');
-    const btnReset  = document.getElementById('btn-reset');
-    const message   = document.getElementById('message');
-    const hInput    = document.getElementById('hours');
-    const mInput    = document.getElementById('minutes');
-    const sInput    = document.getElementById('seconds');
+    const display  = document.getElementById('display');
+    const btnStart = document.getElementById('btn-start');
+    const btnPause = document.getElementById('btn-pause');
+    const btnReset = document.getElementById('btn-reset');
+    const message  = document.getElementById('message');
+    const hInput   = document.getElementById('hours');
+    const mInput   = document.getElementById('minutes');
+    const sInput   = document.getElementById('seconds');
 
     function pad(n) { return String(n).padStart(2, '0'); }
 
-    function updateDisplay(total) {
-      const h = Math.floor(total / 3600);
-      const m = Math.floor((total % 3600) / 60);
-      const s = total % 60;
+    function updateDisplay(totalSeconds) {
+      const h = Math.floor(totalSeconds / 3600);
+      const m = Math.floor((totalSeconds % 3600) / 60);
+      const s = totalSeconds % 60;
       display.textContent = `${pad(h)}:${pad(m)}:${pad(s)}`;
     }
 
@@ -153,73 +157,107 @@
            + (parseInt(sInput.value) || 0);
     }
 
-    function start() {
-      if (!running) {
-        if (remaining === 0) {
-          remaining = getInputSeconds();
-          if (remaining <= 0) return;
-        }
-        message.textContent = '';
-        running = true;
-        display.classList.add('running');
-        btnStart.style.display = 'none';
-        btnPause.style.display = '';
-        setInputsDisabled(true);
+    function renderUI() {
+      const isIdle    = state === 'idle';
+      const isRunning = state === 'running';
+      const isPaused  = state === 'paused';
 
-        intervalId = setInterval(() => {
-          remaining--;
-          updateDisplay(remaining);
-          if (remaining <= 0) {
-            clearInterval(intervalId);
-            running = false;
-            display.classList.remove('running');
-            btnPause.style.display = 'none';
-            btnStart.style.display = '';
-            setInputsDisabled(false);
-            message.textContent = '時間になりました！';
-            new Audio('data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAA' +
-              'EAAQARAAAARAAAAABAACAAIAABAAAAA').play().catch(() => {});
-            remaining = 0;
-            updateDisplay(0);
-          }
-        }, 1000);
+      btnStart.textContent  = isPaused ? '再開' : 'スタート';
+      btnStart.disabled     = isRunning;
+      btnPause.disabled     = !isRunning;
+      btnReset.disabled     = false;
 
-        updateDisplay(remaining);
+      display.classList.toggle('running', isRunning);
+      [hInput, mInput, sInput].forEach(el => el.disabled = !isIdle);
+    }
+
+    function beep() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.5, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.8);
+      } catch (_) {}
+    }
+
+    function tick() {
+      const left = Math.max(0, Math.round((endTime - Date.now()) / 1000));
+      updateDisplay(left);
+
+      if (left <= 0) {
+        clearInterval(intervalId);
+        intervalId = null;
+        state = 'idle';
+        remaining = 0;
+        message.textContent = '時間になりました！';
+        beep();
+        renderUI();
       }
     }
 
-    function pause() {
-      if (running) {
-        clearInterval(intervalId);
-        running = false;
-        display.classList.remove('running');
-        btnPause.style.display = 'none';
-        btnStart.textContent = '再開';
-        btnStart.style.display = '';
+    function start() {
+      if (state === 'idle') {
+        remaining = getInputSeconds();
+        if (remaining <= 0) return;
       }
+      message.textContent = '';
+      endTime = Date.now() + remaining * 1000;
+      state = 'running';
+      renderUI();
+      tick();
+      intervalId = setInterval(tick, 500);
+    }
+
+    function pause() {
+      if (state !== 'running') return;
+      clearInterval(intervalId);
+      intervalId = null;
+      remaining = Math.max(0, Math.round((endTime - Date.now()) / 1000));
+      state = 'paused';
+      renderUI();
     }
 
     function reset() {
       clearInterval(intervalId);
-      running = false;
+      intervalId = null;
+      state = 'idle';
       remaining = 0;
-      display.classList.remove('running');
-      btnPause.style.display = 'none';
-      btnStart.style.display = '';
-      btnStart.textContent = 'スタート';
-      setInputsDisabled(false);
       message.textContent = '';
       updateDisplay(0);
+      renderUI();
     }
 
-    function setInputsDisabled(disabled) {
-      [hInput, mInput, sInput].forEach(el => el.disabled = disabled);
+    // 入力値をmin/maxの範囲にクランプ
+    function clampInput(input) {
+      const min = parseInt(input.min);
+      const max = parseInt(input.max);
+      const val = parseInt(input.value) || 0;
+      input.value = Math.min(max, Math.max(min, val));
     }
+
+    [hInput, mInput, sInput].forEach(el => {
+      el.addEventListener('change', () => clampInput(el));
+    });
+
+    // バックグラウンドタブ復帰時に表示を即時補正
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && state === 'running') {
+        tick();
+      }
+    });
 
     btnStart.addEventListener('click', start);
     btnPause.addEventListener('click', pause);
     btnReset.addEventListener('click', reset);
 
+    renderUI();
     updateDisplay(0);
   </script>
 </body>
