@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>タイマー</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    .container {
+      text-align: center;
+      background: #16213e;
+      border-radius: 20px;
+      padding: 40px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      width: 360px;
+    }
+
+    h1 { font-size: 1.4rem; color: #a8b2d8; margin-bottom: 30px; letter-spacing: 2px; }
+
+    .display {
+      font-size: 5rem;
+      font-weight: 700;
+      letter-spacing: 4px;
+      color: #e94560;
+      margin-bottom: 30px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .display.running { color: #0f3460; text-shadow: 0 0 20px #e94560; color: #e94560; }
+
+    .input-row {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 30px;
+    }
+
+    .input-group { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+
+    .input-group label { font-size: 0.7rem; color: #a8b2d8; letter-spacing: 1px; }
+
+    .input-group input {
+      width: 72px;
+      text-align: center;
+      font-size: 1.4rem;
+      padding: 8px 4px;
+      background: #0f3460;
+      border: 2px solid #1a4a80;
+      border-radius: 10px;
+      color: #eee;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .input-group input:focus { border-color: #e94560; }
+
+    .buttons { display: flex; gap: 12px; justify-content: center; }
+
+    button {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 50px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s, opacity 0.2s;
+      letter-spacing: 1px;
+    }
+
+    button:active { transform: scale(0.95); }
+
+    #btn-start  { background: #e94560; color: #fff; }
+    #btn-pause  { background: #533483; color: #fff; display: none; }
+    #btn-reset  { background: #0f3460; color: #a8b2d8; border: 2px solid #1a4a80; }
+
+    .message {
+      margin-top: 20px;
+      font-size: 1rem;
+      color: #e94560;
+      min-height: 1.4em;
+      font-weight: 600;
+      letter-spacing: 1px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>TIMER</h1>
+
+    <div class="display" id="display">00:00:00</div>
+
+    <div class="input-row">
+      <div class="input-group">
+        <label>時間</label>
+        <input type="number" id="hours" min="0" max="99" value="0">
+      </div>
+      <div class="input-group">
+        <label>分</label>
+        <input type="number" id="minutes" min="0" max="59" value="5">
+      </div>
+      <div class="input-group">
+        <label>秒</label>
+        <input type="number" id="seconds" min="0" max="59" value="0">
+      </div>
+    </div>
+
+    <div class="buttons">
+      <button id="btn-start">スタート</button>
+      <button id="btn-pause">一時停止</button>
+      <button id="btn-reset">リセット</button>
+    </div>
+
+    <div class="message" id="message"></div>
+  </div>
+
+  <script>
+    let remaining = 0;
+    let intervalId = null;
+    let running = false;
+
+    const display   = document.getElementById('display');
+    const btnStart  = document.getElementById('btn-start');
+    const btnPause  = document.getElementById('btn-pause');
+    const btnReset  = document.getElementById('btn-reset');
+    const message   = document.getElementById('message');
+    const hInput    = document.getElementById('hours');
+    const mInput    = document.getElementById('minutes');
+    const sInput    = document.getElementById('seconds');
+
+    function pad(n) { return String(n).padStart(2, '0'); }
+
+    function updateDisplay(total) {
+      const h = Math.floor(total / 3600);
+      const m = Math.floor((total % 3600) / 60);
+      const s = total % 60;
+      display.textContent = `${pad(h)}:${pad(m)}:${pad(s)}`;
+    }
+
+    function getInputSeconds() {
+      return (parseInt(hInput.value) || 0) * 3600
+           + (parseInt(mInput.value) || 0) * 60
+           + (parseInt(sInput.value) || 0);
+    }
+
+    function start() {
+      if (!running) {
+        if (remaining === 0) {
+          remaining = getInputSeconds();
+          if (remaining <= 0) return;
+        }
+        message.textContent = '';
+        running = true;
+        display.classList.add('running');
+        btnStart.style.display = 'none';
+        btnPause.style.display = '';
+        setInputsDisabled(true);
+
+        intervalId = setInterval(() => {
+          remaining--;
+          updateDisplay(remaining);
+          if (remaining <= 0) {
+            clearInterval(intervalId);
+            running = false;
+            display.classList.remove('running');
+            btnPause.style.display = 'none';
+            btnStart.style.display = '';
+            setInputsDisabled(false);
+            message.textContent = '時間になりました！';
+            new Audio('data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAA' +
+              'EAAQARAAAARAAAAABAACAAIAABAAAAA').play().catch(() => {});
+            remaining = 0;
+            updateDisplay(0);
+          }
+        }, 1000);
+
+        updateDisplay(remaining);
+      }
+    }
+
+    function pause() {
+      if (running) {
+        clearInterval(intervalId);
+        running = false;
+        display.classList.remove('running');
+        btnPause.style.display = 'none';
+        btnStart.textContent = '再開';
+        btnStart.style.display = '';
+      }
+    }
+
+    function reset() {
+      clearInterval(intervalId);
+      running = false;
+      remaining = 0;
+      display.classList.remove('running');
+      btnPause.style.display = 'none';
+      btnStart.style.display = '';
+      btnStart.textContent = 'スタート';
+      setInputsDisabled(false);
+      message.textContent = '';
+      updateDisplay(0);
+    }
+
+    function setInputsDisabled(disabled) {
+      [hInput, mInput, sInput].forEach(el => el.disabled = disabled);
+    }
+
+    btnStart.addEventListener('click', start);
+    btnPause.addEventListener('click', pause);
+    btnReset.addEventListener('click', reset);
+
+    updateDisplay(0);
+  </script>
+</body>
+</html>
